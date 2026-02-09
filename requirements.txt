@@ -1,0 +1,7 @@
+torch
+torchaudio
+nemo_toolkit[asr]
+fastapi
+uvicorn
+python-multipart
+aiohttp
