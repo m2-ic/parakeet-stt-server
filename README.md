@@ -91,4 +91,23 @@ Edit `AUDIO_DIR` and `rates` in `loadtest.py` to customize.
 - Requests are load-balanced across workers by uvicorn
 - No batching: each request is processed individually on its assigned GPU
 - Manual inference pipeline (preprocessor → encoder → RNNT decoder) for maximum control
-- CUDA graphs disabled for PyTorch 2.10 compatibility
+
+## Workarounds (PyTorch 2.10 + NeMo)
+
+Three fixes are required for NeMo's Parakeet to work with PyTorch 2.10:
+
+1. **`TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1`** — NeMo model loading crashes without this env var (PyTorch 2.10 changed the default for `torch.load` to `weights_only=True`, NeMo hasn't adapted yet)
+
+2. **CUDA graphs disabled** — NeMo's RNNT greedy decoder uses CUDA graphs by default, which are broken with PyTorch 2.10 API changes. Without disabling them, the first inference call crashes:
+   ```python
+   decoding_cfg["greedy"]["use_cuda_graph_decoder"] = False
+   decoding_cfg["greedy"]["loop_labels"] = False
+   model.change_decoding_strategy(OmegaConf.create(decoding_cfg))
+   ```
+
+3. **Manual inference pipeline** — Instead of `model.transcribe()`, we run the pipeline manually (preprocessor → encoder → RNNT decoder). This avoids additional NeMo-internal issues and gives direct control over tensor placement:
+   ```python
+   processed, proc_len = model.preprocessor(input_signal=waveform, length=length)
+   encoded, encoded_len = model.encoder(audio_signal=processed, length=proc_len)
+   result = model.decoding.rnnt_decoder_predictions_tensor(encoded, encoded_len, return_hypotheses=True)
+   ```
